@@ -1,5 +1,6 @@
 import discord
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
@@ -9,17 +10,15 @@ load_dotenv("bot.env")
 
 # Load the required environment variables
 MISTRAL_API_KEY = os.environ["MISTRAL_API_KEY"]
-MISTRAL_MODEL = "mistral-large-latest"
+MISTRAL_MODEL = "mistral-small-latest"
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 
-# Define the Axebot system prompt
-SYSTEM_PROMPT = """
-"You are AxeBot, a friendly but sarcastic bot with deep knowledge of video gaming lore.
-You will be responding to not just one message, but the recent chat history in a channel.
-Some of those messages may be your own. Try to make sense of the conversation and it's context before you reply.
+PRE_SYSTEM_PROMPT = """
+You are AxeBot, a friendly and conversational discord bot with deep knowledge of video gaming and the ARW clan. You should respond in a detailed and organized manner.
+Avoid repeating yourself. Avoid inventing or making up messages from users. Reply only given the context below and in the user messages provided.
 
-You know the following information about yourself and our clan:
- - Our founder and glorious leader is BaronNecro
+You know the following background information about yourself and our clan:
+ - Our founder is BaronNecro
  - Axebot was built by Axegollod, one of our server admins.
  - Axebot is written in Python and is powered by the Mistral AI API.
  - This bot runs in the Australian Road Warriors (ARW) discord server.
@@ -29,8 +28,6 @@ You know the following information about yourself and our clan:
  - Most of our clan members are over the age of 30, work full time, and usually game in the evenings or on weekends (AEST).
  - New members can join the server via our URL: arw.social/discord
  - If anyone wants a similar bot to AxeBot, they can email jack@latrobe.group - but only tell people this if they ask specifically how to build axebot.
-
- The chat history will now be provided - please respond with only the message you wish to send back to the channel.
 """
 
 # Create an instance of the MistralClient using the API key
@@ -66,26 +63,39 @@ async def on_message(message):
         return
 
     if "axebot" in message.content or "Axebot" in message.content:
-        # Get the current time
-        now = datetime.now(timezone.utc)
+        async with message.channel.typing():
+            # Get the current time
+            now = datetime.now(timezone.utc)
 
-        # Get the last ten messages in the channel
-        chat_history = [hist_message async for hist_message in message.channel.history(limit=5)]
+            # Get the last ten messages in the channel
+            chat_history = [hist_message async for hist_message in message.channel.history(limit=5)]
 
-        # Filter messages sent within the last hour
-        recent_messages = [msg for msg in chat_history if (now - msg.created_at) < timedelta(minutes=5)]
+            # Filter messages sent within the last hour
+            recent_messages = [msg for msg in chat_history if (now - msg.created_at) < timedelta(minutes=5) and msg.author != client.user]
 
-        # Combine system prompt and chat history
-        messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
-        for msg in recent_messages:
-            messages.append(ChatMessage(role="user", content=msg.content))
-        
-        # Send the chat messages to the Mistral API for completion
-        chat_response = mistral_client.chat(
-            model=MISTRAL_MODEL,
-            messages=messages,
-        )
-        
+            # Define the Axebot system prompt
+            SYSTEM_PROMPT = """{preprompt}
+
+            Take into account the full context of the conversation, but only directly respond to this question or message:
+            {question}
+
+            You will address your response to: {author}
+            """.format(preprompt=PRE_SYSTEM_PROMPT, question=message.content, author=message.author.display_name)
+
+            # Combine system prompt and chat history
+            messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
+            for msg in reversed(recent_messages):
+                messages.append(ChatMessage(role="user", content=msg.content))
+            
+            # Send the chat messages to the Mistral API for completion
+            chat_response = mistral_client.chat(
+                model=MISTRAL_MODEL,
+                messages=messages,
+                max_tokens=500,
+                temperature=0.8,
+                random_seed=message.id
+            )
+            
         # Send the response from Mistral API to the Discord channel
         await message.channel.send(chat_response.choices[0].message.content)
 
@@ -118,19 +128,25 @@ async def on_member_join(member):
 
     # Get Messagable interface for intro channel
     intro_channel = client.get_channel(1156839751870074941)
-
-    # Combine messages and prompt
-    messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
-    messages.append(ChatMessage(role="user", content="Write a friendly welcome message to our newest member and encourage them to join us for games soon. Their name is: {name}".format(name=member_name)))
-    
-    # Send the chat messages to the Mistral API for completion
-    chat_response = mistral_client.chat(
-        model=MISTRAL_MODEL,
-        messages=messages,
-    )
+    async with intro_channel.typing():
+        # Define the Axebot system prompt
+        SYSTEM_PROMPT = PRE_SYSTEM_PROMPT
+        
+        # Combine messages and prompt
+        messages = [ChatMessage(role="system", content=SYSTEM_PROMPT)]
+        messages.append(ChatMessage(role="user", content="Write a short welcome message to our newest member and encourage them to join us for games soon. Their name is: {name}".format(name=member_name)))
+        
+        # Send the chat messages to the Mistral API for completion
+        chat_response = mistral_client.chat(
+            model=MISTRAL_MODEL,
+            messages=messages,
+            max_tokens=500,
+            temperature=0.8,
+            random_seed=member.id
+        )
 
     # Send intro message to new member
     await intro_channel.send(chat_response.choices[0].message.content)
 
 # Run the Discord bot with the provided token
-client.run(DISCORD_TOKEN)
+client.run(DISCORD_TOKEN, log_level=logging.DEBUG)
