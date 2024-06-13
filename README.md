@@ -1,4 +1,4 @@
-# Project Title
+# AxeBot - MistralAI-powered discord chatbot example
 
 This project is a Discord bot that uses the Mistral API to interact with users. It responds to user messages and handles events such as joining a new server or welcoming new members.
 
@@ -44,12 +44,16 @@ DISCORD_TOKEN = your_token
 ```
 
 ### Usage
-Run the bot using the following command:
+Run the bot using launch.py directly, or use the following command to run the bot in the background using the launch script:
+```
+nohup ./launch_axebot.sh > axebot.log &
+```
 
 ## Features
  - Chat Interaction: The bot responds to user messages using the Mistral API.
  - Server Joining: The bot prints a message when it joins a new server.
  - Member Welcoming: The bot triggers an event when a new member joins the server.
 
-## License
+## License and Contact
 This project is licensed under the MIT License - see the LICENSE.md file for details.
+If you're interested in adapting, expanding or building a similar bot for your team or business, contact jack@jack-latrobe.com
